@@ -58,7 +58,7 @@
 
   - name: Preparing Kubernetes installation - Adding GPG APT key
     apt_key:
-      url: https://packages.cloud.google.com/apt/doc/i.gpg
+      url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
       state: present
 
   - name: Preparing Kubernetes installation Adding APT repository
@@ -84,7 +84,7 @@
       state: started
   
   - name: Initialize K8s cluster with kubeadmin
-    command: kubeadm init --apiserver-advertise-address="{{node_ip}}" --pod-network-cidr=192.168.0.0/16 --api-server-cert-extra-sans="{{node_ip}}" --node-name master
+    command: kubeadm init --apiserver-advertise-address="{{node_ip}}" --pod-network-cidr=192.168.0.0/16 --apiserver-cert-extra-sans="{{node_ip}}" --node-name master
     when: installation_state is changed
 
   - name: Create .kube folder
