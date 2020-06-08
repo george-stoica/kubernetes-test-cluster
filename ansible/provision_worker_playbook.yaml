@@ -1,0 +1,113 @@
+---
+- hosts: all
+  become: true
+  tasks:
+  - name: Installing Python
+    apt:
+      name: python
+      state: present
+      update_cache: yes
+
+  - name: Setup APT over HTTPS support
+    apt:
+      name: "{{ required_packages }}"
+      state: present
+      update_cache: yes
+    vars:
+      required_packages:
+      - apt-transport-https
+      - ca-certificates
+      - software-properties-common
+      - curl
+      - gnupg-agent
+
+  - name: Prepare Docker installation Adding APT GPG key
+    apt_key:
+      url: https://download.docker.com/linux/ubuntu/gpg
+      state: present
+
+  - name: Adding Docker Stable APT repo
+    apt_repository:
+      # repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable
+      repo: deb [arch=amd64] https://download.docker.com/linux/debian stretch stable
+      state: present
+
+  - name: Installing Docker CE Stable and dependencies
+    apt:
+      name: "{{required_packages}}"
+      state: present
+      update_cache: yes
+    vars:
+      required_packages:
+      - docker-ce # de ce docker si containerd? pentru suport Dockerfile si imagini?
+      - docker-ce-cli # de ce? pentru verificari manuale?
+      - containerd.io # de ce ?
+    notify:
+      - docker status
+
+  - name: Adding vagrant user to docker group
+    user:
+      name: vagrant
+      group: docker
+
+  - name: Disabling SWAP - removing from fstab
+    command: "sed -i '/swap/d' /etc/fstab"
+
+  - name: Disabling SWAP - execute
+    command: "swapoff -a"
+
+  - name: Preparing Kubernetes installation - Adding GPG APT key
+    apt_key:
+      url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+      state: present
+
+  - name: Preparing Kubernetes installation Adding APT repository
+    apt_repository:
+      repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
+      state: present
+
+  - name: Installing Kubernetes
+    apt:
+      name: "{{required_packages}}"
+      state: present
+      update_cache: yes
+    vars:
+      required_packages:
+      - kubelet
+      - kubeadm
+      - kubectl
+    register: installation_state
+  
+  - name: Enable and start kubelet service
+    service:
+      name: kubelet
+      state: started
+
+  - name: Copying join command to k8s node
+    copy:
+      src: "./tmp/join-cluster"
+      dest: "/tmp/join-cluster.sh"
+      mode: '0777'
+    become: false
+
+  - name: Join cluster
+    command: sh /tmp/join-cluster.sh
+
+  - name: Append node ip to kubeadm-flags.env
+    replace:
+      path: /var/lib/kubelet/kubeadm-flags.env
+      regexp: 'resolve/resolv.conf'
+      replace: 'resolve/resolv.conf --node-ip {{node_ip}}'
+    become: true
+
+  - name: Restarting Kubelet
+    service:
+      name: kubelet
+      state: restarted
+      daemon_reload: true # not in documentation !!!
+
+  handlers:
+    - name: docker status
+      service:
+        name: docker
+        state: started

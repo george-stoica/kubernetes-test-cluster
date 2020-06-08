@@ -1,0 +1,135 @@
+---
+- hosts: all
+  become: true
+  tasks:
+  - name: Installing Python
+    apt:
+      name: python
+      state: present
+      update_cache: yes
+
+  - name: Setup APT over HTTPS support
+    apt:
+      name: "{{ required_packages }}"
+      state: present
+      update_cache: yes
+    vars:
+      required_packages:
+      - apt-transport-https
+      - ca-certificates
+      - software-properties-common
+      - curl
+      - gnupg-agent
+  
+  - name: Prepare Docker installation Adding APT GPG key
+    apt_key:
+      url: https://download.docker.com/linux/ubuntu/gpg
+      state: present
+
+  - name: Adding Docker Stable APT repo
+    apt_repository:
+      # repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable
+      repo: deb [arch=amd64] https://download.docker.com/linux/debian stretch stable
+      state: present
+
+  - name: Installing Docker CE Stable and dependencies
+    apt:
+      name: "{{required_packages}}"
+      state: present
+      update_cache: yes
+    vars:
+      required_packages:
+      - docker-ce # de ce docker si containerd? pentru suport Dockerfile si imagini?
+      - docker-ce-cli # de ce? pentru verificari manuale?
+      - containerd.io # de ce ?
+    notify:
+      - docker status
+
+  - name: Adding vagrant user to docker group
+    user:
+      name: vagrant
+      group: docker
+
+  - name: Disabling SWAP - removing from fstab
+    command: "sed -i '/swap/d' /etc/fstab"
+
+  - name: Disabling SWAP - execute
+    command: "swapoff -a"
+
+  - name: Preparing Kubernetes installation - Adding GPG APT key
+    apt_key:
+      url: https://packages.cloud.google.com/apt/doc/i.gpg
+      state: present
+
+  - name: Preparing Kubernetes installation Adding APT repository
+    apt_repository:
+      repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
+      state: present
+
+  - name: Installing Kubernetes
+    apt:
+      name: "{{required_packages}}"
+      state: present
+      update_cache: yes
+    vars:
+      required_packages:
+      - kubelet
+      - kubeadm
+      - kubectl
+    register: installation_state
+  
+  - name: Enable and start kubelet service
+    service:
+      name: kubelet
+      state: started
+  
+  - name: Initialize K8s cluster with kubeadmin
+    command: kubeadm init --apiserver-advertise-address="{{node_ip}}" --pod-network-cidr=192.168.0.0/16 --api-server-cert-extra-sans="{{node_ip}}" --node-name master
+    when: installation_state is changed
+
+  - name: Create .kube folder
+    become: false
+    file:
+      path: /home/vagrant/.kube
+      state: directory
+
+  - name: Copy kubeamin config(admin.conf) to .kube
+    copy:
+      remote_src: true
+      src: /etc/kubernetes/admin.conf
+      dest: /home/vagrant/.kube/config
+      owner: vagrant
+      group: vagrant
+
+  - name: Installing Calico CNI
+    become: false
+    command: kubectl create -f https://docs.projectcalico.org/v3.10/manifests/calico.yaml
+
+  - name: Patching Calico FELIX_IGNORELOOSERPF
+    become: false
+    command: kubectl -n kube-system set env daemonset/calico-node FELIX_IGNORELOOSERPF=true
+
+  - name: Generate and save cluster join command
+    command: kubeadm token create --print-join-command
+    register: join_command
+
+  - name: Creating local temporary dir to hold join cluster command
+    become: false
+    delegate_to: localhost
+    file:
+      path: "./tmp"
+      state: directory
+      mode: '0755' # -rw-rw-rw
+
+  - name: Copying join command to local file
+    copy:
+      dest: "./tmp/join-cluster"
+      content: "{{join_command.stdout_lines[0]}}"
+    become: false
+    delegate_to: localhost
+
+  handlers:
+    - name: docker status
+      service:
+        name: docker
+        state: started
