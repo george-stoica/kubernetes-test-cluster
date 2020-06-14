@@ -1,6 +1,5 @@
 # variables
 
-# VM_IMAGE = "ubuntu/focal64"
 VM_IMAGE = "debian/stretch64"
 NODES = 2
 
@@ -22,7 +21,7 @@ Vagrant.configure("2") do |config|
     master.vm.network "private_network", ip: "192.168.10.10"
     master.vm.hostname = "master"
 
-    master.vm.provision "ansible_local" do |ansible|
+    master.vm.provision "ansible" do |ansible|
       ansible.playbook = "ansible/provision_master_playbook.yaml"
       ansible.extra_vars = {
         node_ip: "192.168.10.10"
@@ -37,7 +36,7 @@ Vagrant.configure("2") do |config|
       node.vm.network "private_network", ip: "192.168.10.#{i + 20}"
       node.vm.hostname = "node#{i}"
 
-      node.vm.provision "ansible_local" do |ansible|
+      node.vm.provision "ansible" do |ansible|
         ansible.playbook = "ansible/provision_worker_playbook.yaml"
         ansible.extra_vars = {
           node_ip: "192.168.10.#{i + 20}"
